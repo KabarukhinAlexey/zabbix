@@ -1,0 +1,7 @@
+---
+roles:
+  - geerlingguy.apache
+
+collections:
+  - name: community.zabbix
+    version: 1.2.0

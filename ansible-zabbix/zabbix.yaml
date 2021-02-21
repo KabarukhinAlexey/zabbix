@@ -1,0 +1,92 @@
+---
+- hosts: zabbix-server
+  become: yes
+  vars_files: ./vars.yaml
+  roles:
+    - role: community.zabbix.zabbix_server
+      zabbix_selinux: True
+      selinux_allow_zabbix_can_http: True
+      selinux_allow_zabbix_can_network: True
+      zabbix_service_enabled: True
+      zabbix_server_database: pgsql
+      zabbix_server_database_long: postgresql
+      zabbix_server_dbport: 5432
+      zabbix_server_dbhost: "{{ groups['zabbix-db-postgresql'] | first }}"
+      zabbix_server_dbhost_run_install: False
+      zabbix_database_creation: False
+      zabbix_server_install_database_client: True
+      zabbix_database_sqlload: False
+      zabbix_server_dbname: zabbixdb
+      zabbix_server_dbuser: zabbix
+      zabbix_server_dbpassword: "{{ zabbix_password }}"
+      zabbix_server_privileged_host: '%'
+  tasks:
+    - name: Open 10051 port in firewalld
+      firewalld:
+        port: 10051/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+#      zabbix_server_pgsql_login_host: "{{ groups['zabbix-db-postgresql'] | first }}"
+#      zabbix_server_pgsql_login_user: postgres
+#      zabbix_server_pgsql_login_password: !vault |
+#          $ANSIBLE_VAULT;1.1;AES256
+#          36623832393065383939313038383661346231353065623338356161366635303938383031663232
+#          3237613162613063393137393666613832613666303539310a623466623134636335616336313563
+#          37623565376264313335613733323965656661653665653533333261656262306136656538623032
+#          6539326538326266360a613439316538633437396564646636663633373537373634623266363562
+#          61393633396130366462333731376463656562616232663764306238616263653034
+#      zabbix_server_pgsql_login_port: 5432
+
+- hosts: zabbix-web
+  become: yes
+  vars_files: ./vars.yaml
+  roles:
+    - role: geerlingguy.apache
+    - role: community.zabbix.zabbix_web
+#      zabbix_url: zabbix.localdomain
+      zabbix_server_hostname: "{{ groups['zabbix-server'] | first }}"
+      zabbix_server_database: pgsql
+      zabbix_server_database_long: postgresql
+      zabbix_server_dbhost: "{{ groups['zabbix-db-postgresql'] | first }}"
+      zabbix_server_dbname: zabbixdb
+      zabbix_server_dbuser: zabbix
+      zabbix_server_dbpassword: "{{ zabbix_password }}"
+      zabbix_server_dbport: 5432
+      zabbix_apache_can_connect_ldap: True
+  tasks:
+    - name: Open 80 and 443 ports in firewalld
+      firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      with_items:
+        - 80/tcp
+        - 443/tcp
+    - name: "Set httpd_can_connect_zabbix and httpd_can_network_connect_db flags on and keep it persistent across reboots"
+      seboolean:
+        name: "{{ item }}"
+        state: yes
+        persistent: yes
+      with_items:
+        - httpd_can_connect_zabbix
+        - httpd_can_network_connect_db
+
+- hosts: zabbix-proxy
+  become: yes
+  vars_files: ./vars.yaml
+  roles:
+    - role: community.zabbix.zabbix_proxy
+      zabbix_selinux: True
+      zabbix_server_host: "{{ groups['zabbix-server'] | first }}"
+      zabbix_proxy_dbhost_run_install: True
+      zabbix_proxy_database: sqlite3
+      zabbix_proxy_database_long: sqlite3
+  tasks:
+    - name: Open 10051 port in firewalld
+      firewalld:
+        port: 10051/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes

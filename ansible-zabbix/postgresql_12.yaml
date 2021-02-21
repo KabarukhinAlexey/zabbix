@@ -1,0 +1,196 @@
+---
+- hosts: zabbix-db-postgresql
+  gather_facts: yes
+  vars_files: vars.yaml
+  vars:
+#    zabbix_major_version: "5.2"
+#    zabbix_minor_version: "5.2.4"
+#    zabbix_password: "Hutyh56yhdgfn3dd"
+
+    rhel_version: "{{ ansible_distribution_major_version }}"
+    pgdata: "{{ '/var/lib/pgsql/12/data/' }}"
+    pg_service_name: "{{ 'postgresql-12' }}"
+#    master_ip: "{% for host in groups['master'] %}{{ hostvars[host]['ansible_default_ipv4']['address'] }}{% endfor %}"
+#    standby_ip: "{% for host in groups['standby'] %}{{ hostvars[host]['ansible_default_ipv4']['address'] }}{% endfor %}"
+###Configuring postgresql.conf###
+    ram_size: "{{ ansible_memtotal_mb }}"
+    shared_buffers: "{{ ram_size|int * 0.25 }}"
+    effective_cache_size: "{{ ram_size|int - shared_buffers|int }}"
+    work_mem: "{{ (ram_size|int - shared_buffers|int) / 100 * 1024 }}"
+    maintenance_work_mem: "{{ ram_size|int * 0.0625 }}"
+#    postgres_password: !vault |
+#          $ANSIBLE_VAULT;1.1;AES256
+#          36623832393065383939313038383661346231353065623338356161366635303938383031663232
+#          3237613162613063393137393666613832613666303539310a623466623134636335616336313563
+#          37623565376264313335613733323965656661653665653533333261656262306136656538623032
+#          6539326538326266360a613439316538633437396564646636663633373537373634623266363562
+#          61393633396130366462333731376463656562616232663764306238616263653034
+
+  tasks:
+###For PostgreSQL 12, RHEL 8###
+##Install postgresql packages https://www.postgresql.org/download/linux/redhat/
+  - block:
+
+    - name: Install the repository RPM
+      yum:
+        name: https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+        disable_gpg_check: yes
+        state: present
+
+    - name: Disable the built-in PostgreSQL module
+      shell:
+        cmd: dnf -qy module disable postgresql
+
+    - name: Install PostgreSQL packages
+      yum:
+        name:
+          - postgresql12-server
+          - postgresql12-contrib
+          - python3-psycopg2
+
+    - name: Open port 5432
+      firewalld:
+        port: 5432/tcp
+        permanent: yes
+        immediate: yes
+        state: enabled
+          
+    - name: checking if already configured
+      shell: ls -l  {{ pgdata }} | wc -l
+      register: ls_result
+      
+    become: yes
+    become_user: root
+
+##Initdb and configuring postgres under postgres user:
+
+  - block:
+
+    - name: change bash_profile ***RHEL 8***
+      shell: |
+        if [ ! -f "$HOME/.vimrc" ]; then touch $HOME/.vimrc && echo ":color desert" > $HOME/.vimrc; fi
+        if [ true ]; then touch $HOME/.bash_profile && cat >> $HOME/.bash_profile << 'EOF'; fi
+        PS1="[\[\033[01;36m\]\T \[\033[01;31m\]\u\[\033[00m\]@\[\033[01;32m\]\h:\[\033[01;34m\]\[\033[00m\]]:\[\033[01;33m\]\w\[\033[00m\]$ "
+        export PATH=$PATH:/usr/pgsql-12/bin
+        export PGDATA="{{ pgdata }}"
+
+    - name: init db
+      shell: /usr/pgsql-12/bin/pg_ctl init -D "{{ pgdata }}" -o "-E 'UTF-8' --lc-collate='en_US.UTF-8' --lc-ctype='en_US.UTF-8' --lc-messages='en_US.UTF-8' --lc-monetary='en_US.UTF-8' --lc-numeric='en_US.UTF-8' --lc-time='en_US.UTF-8'" -o -k
+      
+    - name: Configuring Master
+      replace:
+        path: "{{ pgdata }}/postgresql.conf"
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.line }}"
+      with_items:
+        - { regexp: '^shared_buffers = .*', line: 'shared_buffers = {{ shared_buffers |int |round }}MB' }
+        - { regexp: '^#effective_cache_size = .*', line: 'effective_cache_size = {{ effective_cache_size |int |round }}MB' }
+        - { regexp: '^#work_mem = .*', line: 'work_mem = {{ work_mem |int |round }}kB' }
+        - { regexp: '^#maintenance_work_mem = .*', line: 'maintenance_work_mem = {{ maintenance_work_mem |int |round }}MB' }
+        - { regexp: '^max_connections = .*', line: 'max_connections = 100' }
+        - { regexp: '^#listen_addresses = .*', line: 'listen_addresses = ''*''' }
+        - { regexp: '^#log_connections = .*', line: 'log_connections = on' }
+        - { regexp: '^#log_disconnections = .*', line: 'log_disconnections = on' }
+        - { regexp: '^#log_statement = .*', line: 'log_statement = ddl' }
+        - { regexp: '^#autovacuum_vacuum_scale_factor = .*', line: 'autovacuum_vacuum_scale_factor = 0.05' }
+        - { regexp: '^#autovacuum_analyze_scale_factor = .*', line: 'autovacuum_analyze_scale_factor = 0.01' }
+        - { regexp: '^#checkpoint_completion_target = .*', line: 'checkpoint_completion_target = 0.9' }
+        - { regexp: '^min_wal_size = .*', line: 'min_wal_size = 2GB' }
+        - { regexp: '^max_wal_size = .*', line: 'max_wal_size = 4GB' }
+        - { regexp: '^#wal_buffers = .*', line: 'wal_buffers = 16MB' }
+        - { regexp: '^#random_page_cost = .*', line: 'random_page_cost = 2' }
+        - { regexp: '^#checkpoint_timeout = .*', line: 'checkpoint_timeout = 20min' }
+        - { regexp: '^log_line_prefix = .*', line: 'log_line_prefix = ''%t %u %h %d %p %i ''' }
+        - { regexp: '^#idle_in_transaction_session_timeout = .*', line: 'idle_in_transaction_session_timeout = 10min' }
+        - { regexp: '^#shared_preload_libraries = .*', line: 'shared_preload_libraries = ''pg_stat_statements,passwordcheck''' }
+        - { regexp: '^#track_activity_query_size = .*', line: 'track_activity_query_size = 3072' }
+        - { regexp: '^#max_parallel_workers = .*', line: 'max_parallel_workers = {{ ansible_processor_vcpus }}' }
+
+    - name: Configuring Master (Set common parameters part 2)
+      lineinfile:
+        path: "{{ pgdata }}/postgresql.conf"
+        insertafter: "shared_preload_libraries = "
+        line: 'pg_stat_statements.track = all'
+
+    when: ls_result.stdout == "1"
+    become: yes
+    become_user: postgres
+
+##########################################################################
+
+  - name: start & enable service PG on Master
+    service:
+      name: "{{ pg_service_name }}"
+      state: started
+      enabled: true
+    become: yes
+    become_user: root
+
+  - block:
+
+#    - name: change postgres password
+#      postgresql_user:
+#        name: postgres
+#        password: "{{ postgres_password }}"
+#        state: present
+
+    - name: edit pg_hba rules (host-md5)
+      postgresql_pg_hba:
+        dest: "{{ pgdata }}/pg_hba.conf"
+        contype: host
+        users: all
+        source: 0.0.0.0/0
+        databases: all
+        method: md5
+        state: present
+
+    - name: reload PG on master
+      postgresql_query:
+        db: postgres
+        query: select pg_reload_conf();
+
+    - name: create zabbix user
+      postgresql_user:
+        name: zabbix
+        password: "{{ zabbix_password }}"
+        state: present
+
+    - name: create zabbixdb database
+      postgresql_db:
+        name: zabbixdb
+        encoding: Unicode
+        owner: zabbix
+        template: template0
+      notify:
+      - create zabbix data structure
+
+    when: ls_result.stdout == "1"
+    become: yes
+    become_user: postgres
+
+  handlers:
+    - name: Unarchive zabbix source code
+      unarchive:
+        src: https://cdn.zabbix.com/zabbix/sources/stable/{{ zabbix_major_version }}/zabbix-{{ zabbix_minor_version }}.tar.gz
+        dest: /tmp/
+        remote_src: yes
+      listen: "create zabbix data structure"
+ 
+    - name: run zabbix scripts for zabbix database
+      postgresql_query:
+        db: zabbixdb
+        login_user: zabbix
+        path_to_script: "{{ item }}"
+      with_items:
+        - /tmp/zabbix-{{ zabbix_minor_version }}/database/postgresql/schema.sql
+        - /tmp/zabbix-{{ zabbix_minor_version }}/database/postgresql/images.sql
+        - /tmp/zabbix-{{ zabbix_minor_version }}/database/postgresql/data.sql
+      listen: "create zabbix data structure"
+
+    - name: remove directory with sources
+      file:
+        path: /tmp/zabbix-{{ zabbix_minor_version }}
+        state: absent
+      listen: "create zabbix data structure"   
+
+...

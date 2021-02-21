@@ -1,0 +1,16 @@
+all:
+  children:
+    zabbix:
+      children:
+        zabbix-server:
+          hosts:
+            zabbix-srv:
+        zabbix-db-postgresql:
+          hosts:
+            zabbix-pgsql:
+        zabbix-web:
+          hosts:
+            zabbix-web:
+        zabbix-proxy:
+          hosts:
+            zabbix-proxy:

@@ -1,0 +1,81 @@
+version: '3.9'
+
+volumes:
+  zabbix-postgres:
+
+services:
+  postgres:
+    # Image tag (replace with yours)
+    image: postgres:12.6
+    volumes:
+      - zabbix-postgres:/var/lib/postgresql/data
+    environment:
+      # Database name (replace with yours)
+      POSTGRES_DB: zabbixdb
+      # Database user (replace with yours)
+      POSTGRES_USER: zabbixdbuser
+      # Database password (replace with yours)
+      POSTGRES_PASSWORD: AW2XnxRPiszBeSgjjeKwRLv
+    restart: unless-stopped
+
+  zabbix:
+    # Image tag (replace with yours)
+    image: zabbix/zabbix-server-pgsql:centos-5.2.4
+    environment:
+      DB_SERVER_HOST: postgres
+      DB_SERVER_PORT: 5432
+      # Database name (replace with yours)
+      POSTGRES_DB: zabbixdb
+      # Database user (replace with yours)
+      POSTGRES_USER: zabbixdbuser
+      # Database password (replace with yours)
+      POSTGRES_PASSWORD: AW2XnxRPiszBeSgjjeKwRLv
+      ZBX_VALUECACHESIZE: 64M
+      ZBX_CACHESIZE: 128M
+      ZBX_TRENDCACHESIZE: 128M
+    ports:
+      - "10051:10051"
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+  web:
+    # Image tag (replace with yours)
+    image: zabbix/zabbix-web-apache-pgsql:centos-5.2.4
+    environment:
+      DB_SERVER_HOST: postgres
+      DB_SERVER_PORT: 5432
+      # Database name (replace with yours)
+      POSTGRES_DB: zabbixdb
+      # Database user (replace with yours)
+      POSTGRES_USER: zabbixdbuser
+      # Database password (replace with yours)
+      POSTGRES_PASSWORD: AW2XnxRPiszBeSgjjeKwRLv
+      ZBX_SERVER_HOST: zabbix
+      ZBX_SERVER_PORT: 10051
+      # Timezone (replace with yours) https://www.php.net/manual/en/timezones.php
+      PHP_TZ: Europe/Moscow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    ports:
+      - "80:8080"
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - zabbix
+
+  proxy:
+    #Proxy should be added in web interface after docker-compose start.
+    image: zabbix/zabbix-proxy-sqlite3:centos-5.2.4
+    environment:
+      ZBX_HOSTNAME: proxy
+      ZBX_SERVER_HOST: zabbix
+      ZBX_SERVER_PORT: 10051
+    ports:
+      - "10061:10051"
+    restart: unless-stopped
+
