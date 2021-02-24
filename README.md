@@ -62,4 +62,4 @@ ansible-playbook zabbix.yaml -i inventory
 
 ## Docker-compose
 
-Файл [docker-compose.yaml](ansible-zabbix/docker-compose.yaml) является самодокументируемым. Дополнительных комментариев не требуется.
+Файл [docker-compose.yaml](docker-compose/docker-compose.yaml) является самодокументируемым. Дополнительных комментариев не требуется.
