@@ -1,0 +1,2 @@
+Add task for adding zabbix-proxy with module "community.zabbix.zabbix_proxy"  https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_proxy_module.html
+Change Zabbix admin password with module "community.zabbix.zabbix_user" https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_user_module.html
